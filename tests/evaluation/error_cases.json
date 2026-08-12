@@ -1,0 +1,31 @@
+{
+  "dataset_version": "error-cases-v1",
+  "description": "离线安全降级矩阵：数据质量、Tushare、DeepSeek 与缓存故障。",
+  "cases": [
+    {"id": "dq-missing-column", "kind": "data_quality", "scenario": "missing_column"},
+    {"id": "dq-missing-value", "kind": "data_quality", "scenario": "missing_value"},
+    {"id": "dq-unsorted-dates", "kind": "data_quality", "scenario": "unsorted_dates"},
+    {"id": "dq-duplicate-date", "kind": "data_quality", "scenario": "duplicate_date"},
+    {"id": "dq-nonpositive-price", "kind": "data_quality", "scenario": "nonpositive_price"},
+    {"id": "dq-negative-volume", "kind": "data_quality", "scenario": "negative_volume"},
+    {"id": "dq-invalid-ohlc", "kind": "data_quality", "scenario": "invalid_ohlc"},
+    {"id": "dq-empty-data", "kind": "data_quality", "scenario": "empty_data"},
+    {"id": "dq-prewarm-59", "kind": "data_quality", "scenario": "prewarm_59"},
+    {"id": "dq-empty-display", "kind": "data_quality", "scenario": "empty_display"},
+    {"id": "ts-missing-config", "kind": "tushare", "scenario": "missing_config", "expected_code": "CONFIG", "expected_retryable": false},
+    {"id": "ts-permission", "kind": "tushare", "scenario": "permission", "expected_code": "AUTH", "expected_retryable": false},
+    {"id": "ts-invalid-token", "kind": "tushare", "scenario": "invalid_token", "expected_code": "AUTH", "expected_retryable": false},
+    {"id": "ts-rate-limit", "kind": "tushare", "scenario": "rate_limit", "expected_code": "RATE_LIMIT", "expected_retryable": true},
+    {"id": "ts-timeout", "kind": "tushare", "scenario": "timeout", "expected_code": "DATA", "expected_retryable": true},
+    {"id": "ts-connection", "kind": "tushare", "scenario": "connection", "expected_code": "DATA", "expected_retryable": true},
+    {"id": "ts-server", "kind": "tushare", "scenario": "server", "expected_code": "DATA", "expected_retryable": true},
+    {"id": "ai-auth", "kind": "deepseek", "scenario": "status_401", "expected_code": "AUTH", "expected_retryable": false},
+    {"id": "ai-balance", "kind": "deepseek", "scenario": "status_402", "expected_code": "MODEL", "expected_retryable": false},
+    {"id": "ai-rate-limit", "kind": "deepseek", "scenario": "status_429", "expected_code": "RATE_LIMIT", "expected_retryable": true},
+    {"id": "ai-server-500", "kind": "deepseek", "scenario": "status_500", "expected_code": "MODEL", "expected_retryable": true},
+    {"id": "ai-server-503", "kind": "deepseek", "scenario": "status_503", "expected_code": "MODEL", "expected_retryable": true},
+    {"id": "ai-invalid-twice", "kind": "deepseek", "scenario": "invalid_json_twice", "expected_code": "MODEL", "expected_retryable": true},
+    {"id": "cache-read-failure", "kind": "cache", "scenario": "read_failure", "expected_code": "SUCCESS"},
+    {"id": "cache-write-failure", "kind": "cache", "scenario": "write_failure", "expected_code": "SUCCESS"}
+  ]
+}
