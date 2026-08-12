@@ -25,7 +25,9 @@ STOCK = StockInfo(
 
 
 def market_frame(*, prewarm_rows: int = 120) -> pd.DataFrame:
-    before = pd.bdate_range(end=pd.Timestamp(DISPLAY_START) - pd.Timedelta(days=1), periods=prewarm_rows)
+    before = pd.bdate_range(
+        end=pd.Timestamp(DISPLAY_START) - pd.Timedelta(days=1), periods=prewarm_rows
+    )
     displayed = pd.bdate_range(DISPLAY_START, END_DATE)
     dates = before.append(displayed)
     positions = np.arange(len(dates), dtype=float)

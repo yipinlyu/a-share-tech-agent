@@ -51,12 +51,10 @@ PLACEHOLDER_MARKERS = (
 
 _DEEPSEEK_KEY = re.compile(r"(?<![\w-])sk-[A-Za-z0-9_-]{20,}")
 _TUSHARE_TOKEN = re.compile(r"(?<![A-Za-z0-9])[A-Za-z0-9]{64}(?![A-Za-z0-9])")
-_BEARER_TOKEN = re.compile(
-    r"(?i)\bauthorization\s*[:=]\s*[\"']?bearer\s+([A-Za-z0-9._~+/=-]{16,})"
-)
+_BEARER_TOKEN = re.compile(r"(?i)\bauthorization\s*[:=]\s*[\"']?bearer\s+([A-Za-z0-9._~+/=-]{16,})")
 _SECRET_ASSIGNMENT = re.compile(
     r"(?ix)\b[A-Z0-9_]*(?:API[_-]?KEY|SECRET|TOKEN|PASSWORD|ACCESS[_-]?KEY)"
-    r"[A-Z0-9_]*\s*=\s*[\"']?([^\s\"';,#}{]{16,})"
+    r"[A-Z0-9_]*\s*=\s*[\"']?([A-Za-z0-9_+/=-]{16,})"
 )
 
 
@@ -129,7 +127,9 @@ def scan_path(root: Path | str) -> list[Finding]:
         if b"\0" in payload:
             continue
         relative = path.relative_to(root).as_posix()
-        for line_number, line in enumerate(payload.decode("utf-8", errors="replace").splitlines(), 1):
+        for line_number, line in enumerate(
+            payload.decode("utf-8", errors="replace").splitlines(), 1
+        ):
             for kind in _classify_line(line):
                 findings.append(Finding(relative, line_number, kind))
     return sorted(set(findings))

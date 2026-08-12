@@ -25,6 +25,7 @@ venv/
 *.sqlite3
 .cache/
 data/cache/
+artifacts/
 
 # Editors and operating systems
 .DS_Store

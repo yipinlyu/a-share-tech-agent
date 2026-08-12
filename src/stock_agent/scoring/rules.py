@@ -66,9 +66,19 @@ RULE_DEFINITIONS: Final[tuple[RuleDefinition, ...]] = (
     RuleDefinition("kdj_cross", "momentum", 8, "KDJ 最近出现合格上穿", "KDJ 最近出现合格下穿"),
     RuleDefinition("macd_hist_momentum", "momentum", 7, "正 MACD 柱继续增强", "负 MACD 柱继续减弱"),
     RuleDefinition("return_20d", "momentum", 5, "二十日涨幅超过 3%", "二十日跌幅超过 3%"),
-    RuleDefinition("obv_price_trend", "volume_volatility", 8, "OBV 与价格五日同升", "OBV 与价格五日同降"),
-    RuleDefinition("volume_confirmation", "volume_volatility", 7, "放量上涨得到确认", "放量下跌得到确认"),
-    RuleDefinition("boll_position", "volume_volatility", 7, "价格位于布林中轨上方轨内", "价格位于布林中轨下方轨内"),
+    RuleDefinition(
+        "obv_price_trend", "volume_volatility", 8, "OBV 与价格五日同升", "OBV 与价格五日同降"
+    ),
+    RuleDefinition(
+        "volume_confirmation", "volume_volatility", 7, "放量上涨得到确认", "放量下跌得到确认"
+    ),
+    RuleDefinition(
+        "boll_position",
+        "volume_volatility",
+        7,
+        "价格位于布林中轨上方轨内",
+        "价格位于布林中轨下方轨内",
+    ),
     RuleDefinition("boll_breakout", "volume_volatility", 5, "价格突破布林上轨", "价格跌破布林下轨"),
 )
 _RULES: Final = {rule.key: rule for rule in RULE_DEFINITIONS}
@@ -93,7 +103,13 @@ def evaluate_rule(rule_key: str, frame: pd.DataFrame) -> RuleEvaluation:
 
     definition = _RULES[rule_key]
     status, observed = _PREDICATES[rule_key](frame)
-    points = definition.capacity if status == "bullish" else -definition.capacity if status == "bearish" else 0
+    points = (
+        definition.capacity
+        if status == "bullish"
+        else -definition.capacity
+        if status == "bearish"
+        else 0
+    )
     interpretation = (
         definition.bullish_text
         if status == "bullish"
@@ -142,8 +158,12 @@ def score_signals(
 
     total = sum(group_scores[group] or 0.0 for group in usable_groups) * 100.0 / usable_weight
     total = _clamp(total, -100.0, 100.0)
-    bullish_points = float(sum(item.signed_points for item in evaluations if item.signed_points > 0))
-    bearish_points = float(-sum(item.signed_points for item in evaluations if item.signed_points < 0))
+    bullish_points = float(
+        sum(item.signed_points for item in evaluations if item.signed_points > 0)
+    )
+    bearish_points = float(
+        -sum(item.signed_points for item in evaluations if item.signed_points < 0)
+    )
     hit_points = bullish_points + bearish_points
     consistency = abs(bullish_points - bearish_points) / hit_points if hit_points else 0.0
 
@@ -183,13 +203,38 @@ def build_watch_levels(frame: pd.DataFrame) -> list[WatchLevel]:
     finite_lows = _recent_finite(frame, "low", 20)
     finite_highs = _recent_finite(frame, "high", 20)
     candidates: tuple[tuple[str, str, float | None, str], ...] = (
-        ("recent_20d_low", "支撑观察", min(finite_lows) if finite_lows else None, "最近二十个有效交易日低点"),
-        ("recent_20d_high", "压力观察", max(finite_highs) if finite_highs else None, "最近二十个有效交易日高点"),
-        ("ma20", _relative_label(_number(latest.get("ma20")), close), _number(latest.get("ma20")), "MA20 观察位"),
+        (
+            "recent_20d_low",
+            "支撑观察",
+            min(finite_lows) if finite_lows else None,
+            "最近二十个有效交易日低点",
+        ),
+        (
+            "recent_20d_high",
+            "压力观察",
+            max(finite_highs) if finite_highs else None,
+            "最近二十个有效交易日高点",
+        ),
+        (
+            "ma20",
+            _relative_label(_number(latest.get("ma20")), close),
+            _number(latest.get("ma20")),
+            "MA20 观察位",
+        ),
         ("boll_upper", "压力观察", _number(latest.get("boll_upper")), "布林带上轨观察位"),
         ("boll_lower", "支撑观察", _number(latest.get("boll_lower")), "布林带下轨观察位"),
-        ("close_minus_atr", "波动参考", close - atr if close is not None and atr is not None else None, "收盘价减 ATR14 波动参考"),
-        ("close_plus_atr", "波动参考", close + atr if close is not None and atr is not None else None, "收盘价加 ATR14 波动参考"),
+        (
+            "close_minus_atr",
+            "波动参考",
+            close - atr if close is not None and atr is not None else None,
+            "收盘价减 ATR14 波动参考",
+        ),
+        (
+            "close_plus_atr",
+            "波动参考",
+            close + atr if close is not None and atr is not None else None,
+            "收盘价加 ATR14 波动参考",
+        ),
     )
     return [
         WatchLevel(label=label, price=price, basis_key=key, rationale=rationale)
@@ -242,7 +287,9 @@ def build_analysis_id(
     return hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
 
 
-def _latest_values(frame: pd.DataFrame, columns: Sequence[str], offset: int = -1) -> list[float] | None:
+def _latest_values(
+    frame: pd.DataFrame, columns: Sequence[str], offset: int = -1
+) -> list[float] | None:
     if len(frame) < abs(offset) or any(column not in frame.columns for column in columns):
         return None
     values = [_number(frame.iloc[offset].get(column)) for column in columns]
@@ -284,7 +331,9 @@ def _macd_line(frame: pd.DataFrame) -> tuple[RuleStatus, float | None]:
     return ("bullish" if bullish else "bearish" if bearish else "neutral", values[2])
 
 
-def _ratio_rule(frame: pd.DataFrame, column: str, shift: int, boundary: float) -> tuple[RuleStatus, float | None]:
+def _ratio_rule(
+    frame: pd.DataFrame, column: str, shift: int, boundary: float
+) -> tuple[RuleStatus, float | None]:
     latest = _latest_values(frame, (column,))
     past = _latest_values(frame, (column,), -(shift + 1))
     if latest is None or past is None:
@@ -295,7 +344,11 @@ def _ratio_rule(frame: pd.DataFrame, column: str, shift: int, boundary: float) -
     difference = latest[0] - past[0]
     threshold = abs(past[0]) * boundary
     return (
-        "bullish" if difference > threshold else "bearish" if difference < -threshold else "neutral",
+        "bullish"
+        if difference > threshold
+        else "bearish"
+        if difference < -threshold
+        else "neutral",
         change,
     )
 
@@ -309,7 +362,10 @@ def _rsi14(frame: pd.DataFrame) -> tuple[RuleStatus, float | None]:
     if values is None:
         return "missing", None
     value = values[0]
-    return ("bullish" if 55 <= value <= 70 else "bearish" if 30 <= value <= 45 else "neutral", value)
+    return (
+        "bullish" if 55 <= value <= 70 else "bearish" if 30 <= value <= 45 else "neutral",
+        value,
+    )
 
 
 def _kdj_cross(frame: pd.DataFrame) -> tuple[RuleStatus, float | None]:
@@ -430,14 +486,20 @@ def _risk_results(
     if atr_ratio is not None and atr_ratio > 0.04:
         atr_points = 2 if atr_ratio > 0.06 else 1
         risks.append(
-            Risk(risk_type="volatility", evidence_key="atr_ratio", description="ATR14 相对收盘价偏高")
+            Risk(
+                risk_type="volatility", evidence_key="atr_ratio", description="ATR14 相对收盘价偏高"
+            )
         )
         points += atr_points
 
     breakout = _boll_breakout(frame)[0]
     if breakout in ("bullish", "bearish"):
         risks.append(
-            Risk(risk_type="volatility", evidence_key="boll_breakout", description="收盘价位于布林带轨外")
+            Risk(
+                risk_type="volatility",
+                evidence_key="boll_breakout",
+                description="收盘价位于布林带轨外",
+            )
         )
         points += 2
 
@@ -469,7 +531,9 @@ def _risk_results(
     for warning in data_warnings:
         text = str(warning).strip()
         if text:
-            risks.append(Risk(risk_type="data_quality", evidence_key="data_quality", description=text[:120]))
+            risks.append(
+                Risk(risk_type="data_quality", evidence_key="data_quality", description=text[:120])
+            )
             points += 1
     return conflicts, risks, points
 
@@ -546,7 +610,13 @@ def _canonical(value: object) -> str:
         return format(number, ".17g")
     if isinstance(value, Mapping):
         items = sorted(((str(key), item) for key, item in value.items()), key=lambda pair: pair[0])
-        return "{" + ",".join(f"{json.dumps(key, ensure_ascii=False)}:{_canonical(item)}" for key, item in items) + "}"
+        return (
+            "{"
+            + ",".join(
+                f"{json.dumps(key, ensure_ascii=False)}:{_canonical(item)}" for key, item in items
+            )
+            + "}"
+        )
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
         return "[" + ",".join(_canonical(item) for item in value) + "]"
     raise TypeError(f"unsupported canonical JSON value: {type(value).__name__}")

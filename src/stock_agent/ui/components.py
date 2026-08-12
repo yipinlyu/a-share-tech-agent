@@ -151,8 +151,16 @@ def render_summary(result: AnalysisResult) -> None:
             f"{'▲' if (change or 0) >= 0 else '▼'} {change:+.2f}%" if change is not None else "—",
             "符号 + 数字双重表达",
         ),
-        ("规则信号", f"{_signal_mark(signal)} {signal}", f"score-v1 · {score.total:+.1f}" if score else "—"),
-        ("风险等级", f"◆ {score.risk_level}" if score else "—", f"风险分 {score.risk_score}" if score else "—"),
+        (
+            "规则信号",
+            f"{_signal_mark(signal)} {signal}",
+            f"score-v1 · {score.total:+.1f}" if score else "—",
+        ),
+        (
+            "风险等级",
+            f"◆ {score.risk_level}" if score else "—",
+            f"风险分 {score.risk_score}" if score else "—",
+        ),
     )
     columns = st.columns(4)
     for column, (label, value, subtitle) in zip(columns, cells, strict=True):
@@ -171,7 +179,7 @@ def _evidence_block(items: list[Any], kind: str, empty_text: str) -> None:
         label = SOURCE_LABELS.get(item.source_key, item.source_key)
         st.markdown(
             f'<div class="evidence {kind}"><b>{item.interpretation}</b><br>'
-            f'<small>{label} · 观测值 {item.observed_value:,.4g}</small></div>',
+            f"<small>{label} · 观测值 {item.observed_value:,.4g}</small></div>",
             unsafe_allow_html=True,
         )
 
@@ -208,7 +216,7 @@ def render_score_panel(result: AnalysisResult) -> None:
     for level in score.watch_levels:
         st.markdown(
             f'<div class="watch-level"><span><b>{level.label}</b><br><small>{level.rationale}</small></span>'
-            f'<span>{level.price:,.2f} 元</span></div>',
+            f"<span>{level.price:,.2f} 元</span></div>",
             unsafe_allow_html=True,
         )
 
@@ -248,9 +256,13 @@ def render_ai_interpretation(interpretation: AIInterpretation | AgentError | Non
     cache_label = "缓存命中" if interpretation.cache_hit else "本次生成"
     st.markdown(f"#### {_signal_mark(interpretation.rule_signal)} {interpretation.rule_signal}")
     st.write(interpretation.summary)
-    st.caption(f"{interpretation.model} · {cache_label} · {interpretation.generated_at:%Y-%m-%d %H:%M}")
+    st.caption(
+        f"{interpretation.model} · {cache_label} · {interpretation.generated_at:%Y-%m-%d %H:%M}"
+    )
     for evidence in interpretation.evidence:
-        st.markdown(f"- **{SOURCE_LABELS.get(evidence.source_key, evidence.source_key)}**：{evidence.interpretation}")
+        st.markdown(
+            f"- **{SOURCE_LABELS.get(evidence.source_key, evidence.source_key)}**：{evidence.interpretation}"
+        )
     with st.expander("AI 风险与观察位"):
         for risk in interpretation.risks:
             st.markdown(f"- {risk.description}")

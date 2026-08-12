@@ -107,12 +107,10 @@ def test_valid_minimum_payload_is_grounded() -> None:
 def test_valid_maximum_arrays_are_accepted() -> None:
     payload = raw_payload()
     payload["evidence"] = [
-        {"source_key": "close", "observed_value": 100.0, "interpretation": str(i)}
-        for i in range(6)
+        {"source_key": "close", "observed_value": 100.0, "interpretation": str(i)} for i in range(6)
     ]
     payload["risks"] = [
-        {"risk_type": "other", "evidence_key": "close", "description": str(i)}
-        for i in range(6)
+        {"risk_type": "other", "evidence_key": "close", "description": str(i)} for i in range(6)
     ]
     payload["watch_levels"] = [
         {

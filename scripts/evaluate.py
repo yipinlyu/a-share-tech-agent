@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Deterministic, credential-safe evaluation for the A-share technical agent."""
 
+# ruff: noqa: E402 -- direct execution bootstraps the local src layout below.
+
 from __future__ import annotations
 
 import argparse
@@ -109,9 +111,7 @@ def run_evaluation() -> dict[str, Any]:
 
     search_fixture = _read_json(SEARCH_CASES_PATH)
     error_fixture = _read_json(ERROR_CASES_PATH)
-    data_quality_count = sum(
-        case["kind"] == "data_quality" for case in error_fixture["cases"]
-    )
+    data_quality_count = sum(case["kind"] == "data_quality" for case in error_fixture["cases"])
     thresholds = {
         "search_top5": 0.95,
         "indicator_reference": 1.0,
@@ -356,8 +356,8 @@ def _reference_indicators(frame: pd.DataFrame) -> pd.DataFrame:
     result["ema26"] = close.ewm(span=26, adjust=False, min_periods=26).mean()
     result["macd"] = result["ema12"] - result["ema26"]
     valid_macd = result["macd"].dropna()
-    result["macd_signal"] = valid_macd.ewm(span=9, adjust=False, min_periods=9).mean().reindex(
-        result.index
+    result["macd_signal"] = (
+        valid_macd.ewm(span=9, adjust=False, min_periods=9).mean().reindex(result.index)
     )
     result["macd_hist"] = result["macd"] - result["macd_signal"]
 
@@ -365,9 +365,9 @@ def _reference_indicators(frame: pd.DataFrame) -> pd.DataFrame:
     deviations = close.rolling(20, min_periods=20).std(ddof=0)
     result["boll_upper"] = result["boll_mid"] + 2.0 * deviations
     result["boll_lower"] = result["boll_mid"] - 2.0 * deviations
-    result["bandwidth"] = (
-        (result["boll_upper"] - result["boll_lower"]) / result["boll_mid"]
-    ).mask(result["boll_mid"] == 0)
+    result["bandwidth"] = ((result["boll_upper"] - result["boll_lower"]) / result["boll_mid"]).mask(
+        result["boll_mid"] == 0
+    )
 
     delta = close.diff()
     gain = delta.where(delta > 0, 0.0).where(delta.notna())
@@ -575,9 +575,7 @@ class _FakePro:
 
 def _fake_ai_response(payload: dict[str, Any] | str) -> object:
     content = payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False)
-    return SimpleNamespace(
-        choices=[SimpleNamespace(message=SimpleNamespace(content=content))]
-    )
+    return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
 
 
 def _offline_deepseek(
@@ -642,7 +640,9 @@ def _run_exception_case(case: dict[str, Any]) -> bool:
         return not result.valid and bool(result.warnings)
     if kind == "tushare":
         if scenario == "missing_config":
-            operation = lambda: TushareDataClient(token=None)
+
+            def operation() -> object:
+                return TushareDataClient(token=None)
         else:
             upstream = {
                 "permission": RuntimeError("权限不足，需要积分"),
@@ -652,9 +652,12 @@ def _run_exception_case(case: dict[str, Any]) -> bool:
                 "connection": ConnectionError("connection failed"),
                 "server": RuntimeError("server 503"),
             }[scenario]
-            operation = lambda: TushareDataClient(pro=_FakePro(upstream)).fetch_daily(
-                "600519.SH", date(2024, 1, 1), date(2024, 1, 3)
-            )
+
+            def operation() -> object:
+                return TushareDataClient(pro=_FakePro(upstream)).fetch_daily(
+                    "600519.SH", date(2024, 1, 1), date(2024, 1, 3)
+                )
+
         try:
             operation()
             return False

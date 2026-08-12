@@ -14,7 +14,6 @@ from stock_agent.config import Settings
 from stock_agent.data.tushare_client import TushareAdapterError, TushareDataClient
 from stock_agent.domain.models import (
     AIRequest,
-    AgentError,
     AnalysisRequest,
     AnalysisResult,
     ChatRequest,
@@ -125,17 +124,26 @@ def _clear_session() -> None:
 
 
 def _stock_dict(stock: StockInfo) -> dict[str, object]:
-    return {"ts_code": stock.ts_code, "name": stock.name, "market": stock.market, "industry": stock.industry}
+    return {
+        "ts_code": stock.ts_code,
+        "name": stock.name,
+        "market": stock.market,
+        "industry": stock.industry,
+    }
 
 
 def _remember(stock: StockInfo) -> None:
-    items = [item for item in st.session_state.recent_searches if item.get("ts_code") != stock.ts_code]
+    items = [
+        item for item in st.session_state.recent_searches if item.get("ts_code") != stock.ts_code
+    ]
     st.session_state.recent_searches = [_stock_dict(stock), *items][:20]
 
 
 def _toggle_watch(stock: StockInfo) -> None:
     items = list(st.session_state.watchlist)
-    existing = next((index for index, item in enumerate(items) if item.get("ts_code") == stock.ts_code), None)
+    existing = next(
+        (index for index, item in enumerate(items) if item.get("ts_code") == stock.ts_code), None
+    )
     if existing is None:
         items.append(_stock_dict(stock))
     else:
@@ -154,7 +162,10 @@ def _reset_for_analysis(result: AnalysisResult, service: AnalysisService) -> Non
 
 def _selected_candidate() -> StockInfo | None:
     selected = st.session_state.selected_code
-    return next((candidate for candidate in st.session_state.candidates if candidate.ts_code == selected), None)
+    return next(
+        (candidate for candidate in st.session_state.candidates if candidate.ts_code == selected),
+        None,
+    )
 
 
 def _show_sidebar(settings: Settings, service: AnalysisService | None) -> tuple[int, object]:
@@ -180,18 +191,27 @@ def _show_sidebar(settings: Settings, service: AnalysisService | None) -> tuple[
                     st.session_state.candidates = result.candidates
                     st.session_state.selected_code = result.candidates[0].ts_code
                     st.session_state.search_message = (
-                        "已唯一匹配。" if result.status == "resolved" else "找到多个候选，请明确选择。"
+                        "已唯一匹配。"
+                        if result.status == "resolved"
+                        else "找到多个候选，请明确选择。"
                     )
                 elif result.status == "not_found":
                     st.session_state.candidates = []
-                    st.session_state.search_message = "未找到匹配股票，请尝试 6 位代码或更完整名称。"
+                    st.session_state.search_message = (
+                        "未找到匹配股票，请尝试 6 位代码或更完整名称。"
+                    )
                 else:
                     st.session_state.candidates = []
-                    st.session_state.search_message = result.error.user_message if result.error else "股票搜索暂时失败。"
+                    st.session_state.search_message = (
+                        result.error.user_message if result.error else "股票搜索暂时失败。"
+                    )
         if st.session_state.search_message:
             st.caption(st.session_state.search_message)
         if st.session_state.candidates:
-            labels = {candidate.ts_code: candidate_label(candidate) for candidate in st.session_state.candidates}
+            labels = {
+                candidate.ts_code: candidate_label(candidate)
+                for candidate in st.session_state.candidates
+            }
             st.selectbox(
                 "明确选择候选股",
                 options=list(labels),
@@ -205,7 +225,9 @@ def _show_sidebar(settings: Settings, service: AnalysisService | None) -> tuple[
             index=2,
             horizontal=True,
         )
-        requested_end_date = st.date_input("请求截止日", value=None, help="留空则以今日为请求截止日。")
+        requested_end_date = st.date_input(
+            "请求截止日", value=None, help="留空则以今日为请求截止日。"
+        )
         selected = _selected_candidate()
         analyze_clicked = st.button(
             "运行规则分析",
@@ -231,7 +253,9 @@ def _show_sidebar(settings: Settings, service: AnalysisService | None) -> tuple[
                 st.session_state.search_message = "日期或周期参数无效。"
         selected = _selected_candidate()
         if selected is not None:
-            followed = any(item.get("ts_code") == selected.ts_code for item in st.session_state.watchlist)
+            followed = any(
+                item.get("ts_code") == selected.ts_code for item in st.session_state.watchlist
+            )
             if st.button("移出自选" if followed else "加入本会话自选", use_container_width=True):
                 _toggle_watch(selected)
                 st.rerun()
@@ -275,17 +299,31 @@ def _render_analysis(result: AnalysisResult) -> None:
     )
     macd_tab, rsi_tab, risk_tab = st.tabs(["MACD", "RSI / KDJ", "ATR / OBV 与量能"])
     with macd_tab:
-        st.plotly_chart(create_macd_chart(result.series), use_container_width=True, config={"displaylogo": False})
+        st.plotly_chart(
+            create_macd_chart(result.series),
+            use_container_width=True,
+            config={"displaylogo": False},
+        )
     with rsi_tab:
-        st.plotly_chart(create_rsi_kdj_chart(result.series), use_container_width=True, config={"displaylogo": False})
+        st.plotly_chart(
+            create_rsi_kdj_chart(result.series),
+            use_container_width=True,
+            config={"displaylogo": False},
+        )
     with risk_tab:
-        st.plotly_chart(create_atr_obv_chart(result.series), use_container_width=True, config={"displaylogo": False})
+        st.plotly_chart(
+            create_atr_obv_chart(result.series),
+            use_container_width=True,
+            config={"displaylogo": False},
+        )
     render_score_panel(result)
     with st.expander("查看 Agent 执行轨迹"):
         render_trace(result)
 
 
-def _render_ai(service: AnalysisService | None, settings: Settings, analysis: AnalysisResult | None) -> None:
+def _render_ai(
+    service: AnalysisService | None, settings: Settings, analysis: AnalysisResult | None
+) -> None:
     st.markdown("## AI 解读 · 按需产生")
     can_ai = (
         service is not None
@@ -336,14 +374,18 @@ def main() -> None:
         try:
             service = build_service(settings)
         except (TushareAdapterError, MemoryRepositoryError, ValueError) as exc:
-            message = exc.error.user_message if isinstance(exc, TushareAdapterError) else "生产服务初始化失败，请检查部署配置。"
+            message = (
+                exc.error.user_message
+                if isinstance(exc, TushareAdapterError)
+                else "生产服务初始化失败，请检查部署配置。"
+            )
             st.session_state.search_message = message
     _show_sidebar(settings, service)
     st.markdown('<div class="eyebrow">A-SHARE / TECHNICAL EVIDENCE</div>', unsafe_allow_html=True)
     st.title("格物 · 技术研究台")
     st.markdown(
         '<p class="deck">把前复权日线、冻结指标公式和 score-v1 证据放在同一张桌面上。'
-        '规则先于模型，截至日期先于结论。</p>',
+        "规则先于模型，截至日期先于结论。</p>",
         unsafe_allow_html=True,
     )
     analysis = st.session_state.current_analysis

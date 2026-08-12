@@ -48,8 +48,7 @@ def test_schema_contains_only_the_four_anonymous_cache_tables(tmp_path, clock) -
         tables = {
             row[0]
             for row in connection.execute(
-                "SELECT name FROM sqlite_master "
-                "WHERE type = ? AND name NOT LIKE ?",
+                "SELECT name FROM sqlite_master WHERE type = ? AND name NOT LIKE ?",
                 ("table", "sqlite_%"),
             )
         }
@@ -151,9 +150,7 @@ def test_latest_market_request_uses_six_hours_even_on_weekend(tmp_path) -> None:
 
 def test_explicit_historical_market_request_uses_thirty_days(tmp_path, clock) -> None:
     requested_end_date = date(2026, 8, 11)
-    assert market_data_ttl(requested_end_date=requested_end_date, now=clock()) == timedelta(
-        days=30
-    )
+    assert market_data_ttl(requested_end_date=requested_end_date, now=clock()) == timedelta(days=30)
 
     repo = SQLiteMemory(tmp_path / "history.db", clock=clock)
     repo.put_market(

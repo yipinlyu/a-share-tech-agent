@@ -177,9 +177,7 @@ def test_cache_key_is_bound_to_configured_actual_model() -> None:
     cache = FakeCache()
     first, _ = make_client([response(valid_raw())], cache=cache)
     interpret(first)
-    second, second_fake = make_client(
-        [response(valid_raw())], cache=cache, model="deepseek-v4-pro"
-    )
+    second, second_fake = make_client([response(valid_raw())], cache=cache, model="deepseek-v4-pro")
 
     result = interpret(second)
 

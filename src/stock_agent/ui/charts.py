@@ -79,7 +79,9 @@ def _empty(title: str, *, height: int) -> go.Figure:
     return figure
 
 
-def create_kline_chart(frame: pd.DataFrame | None, *, title: str = "价格结构 · 前复权日线") -> go.Figure:
+def create_kline_chart(
+    frame: pd.DataFrame | None, *, title: str = "价格结构 · 前复权日线"
+) -> go.Figure:
     """Build K-line, moving-average, and Bollinger overlays with Chinese units."""
 
     data = _frame(frame)
@@ -186,7 +188,9 @@ def create_macd_chart(frame: pd.DataFrame | None, *, title: str = "MACD · 趋�
     return figure
 
 
-def create_rsi_kdj_chart(frame: pd.DataFrame | None, *, title: str = "RSI / KDJ · 强弱与摆动") -> go.Figure:
+def create_rsi_kdj_chart(
+    frame: pd.DataFrame | None, *, title: str = "RSI / KDJ · 强弱与摆动"
+) -> go.Figure:
     """Build RSI and K/D/J lines with explicit 30/70 reference labels."""
 
     data = _frame(frame)
@@ -224,7 +228,9 @@ def create_rsi_kdj_chart(frame: pd.DataFrame | None, *, title: str = "RSI / KDJ 
     return figure
 
 
-def create_atr_obv_chart(frame: pd.DataFrame | None, *, title: str = "ATR / OBV / 成交量 · 风险与确认") -> go.Figure:
+def create_atr_obv_chart(
+    frame: pd.DataFrame | None, *, title: str = "ATR / OBV / 成交量 · 风险与确认"
+) -> go.Figure:
     """Build a two-row volatility and volume-confirmation figure."""
 
     data = _frame(frame)

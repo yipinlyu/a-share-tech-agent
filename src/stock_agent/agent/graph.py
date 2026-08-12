@@ -375,8 +375,7 @@ def run_analysis_graph(
         return AnalysisResult(status="insufficient_data", **common)
     return AnalysisResult(
         status="error",
-        error=state.get("error")
-        or _error("INTERNAL", "分析流程未能安全完成，请稍后重试。"),
+        error=state.get("error") or _error("INTERNAL", "分析流程未能安全完成，请稍后重试。"),
         **common,
     )
 

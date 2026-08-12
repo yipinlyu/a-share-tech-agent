@@ -113,8 +113,18 @@ def test_group_contract_constants_and_data_driven_capacity() -> None:
 @pytest.mark.parametrize(
     ("rule_key", "bullish", "bearish", "neutral"),
     [
-        ("price_ma20", {"close": 101, "ma20": 100}, {"close": 99, "ma20": 100}, {"close": 100, "ma20": 100}),
-        ("price_ma60", {"close": 101, "ma60": 100}, {"close": 99, "ma60": 100}, {"close": 100, "ma60": 100}),
+        (
+            "price_ma20",
+            {"close": 101, "ma20": 100},
+            {"close": 99, "ma20": 100},
+            {"close": 100, "ma20": 100},
+        ),
+        (
+            "price_ma60",
+            {"close": 101, "ma60": 100},
+            {"close": 99, "ma60": 100},
+            {"close": 100, "ma60": 100},
+        ),
         (
             "ma_alignment",
             {"ma5": 104, "ma10": 103, "ma20": 102, "ma60": 101},
@@ -191,7 +201,13 @@ def test_ma20_slope_uses_strict_half_percent_boundary(
 
 @pytest.mark.parametrize(
     ("previous", "latest", "status"),
-    [(0.1, 0.2, "bullish"), (0.2, 0.1, "neutral"), (-0.1, -0.2, "bearish"), (-0.2, -0.1, "neutral"), (0.1, 0.1, "neutral")],
+    [
+        (0.1, 0.2, "bullish"),
+        (0.2, 0.1, "neutral"),
+        (-0.1, -0.2, "bearish"),
+        (-0.2, -0.1, "neutral"),
+        (0.1, 0.1, "neutral"),
+    ],
 )
 def test_macd_hist_momentum_requires_directional_change_and_same_sign(
     previous: float, latest: float, status: str
@@ -252,7 +268,12 @@ def test_kdj_uses_only_most_recent_qualified_cross_in_three_valid_days() -> None
 
 @pytest.mark.parametrize(
     ("previous_k", "latest_k", "d", "status"),
-    [(70, 80, 75, "neutral"), (30, 20, 25, "neutral"), (70, 79.999, 75, "bullish"), (30, 20.001, 25, "bearish")],
+    [
+        (70, 80, 75, "neutral"),
+        (30, 20, 25, "neutral"),
+        (70, 79.999, 75, "bullish"),
+        (30, 20.001, 25, "bearish"),
+    ],
 )
 def test_kdj_cross_threshold_uses_cross_day_k_strictly(
     previous_k: float, latest_k: float, d: float, status: str
@@ -401,7 +422,9 @@ def test_atr_risk_thresholds_are_strict_at_four_and_six_percent(
     assert score.risk_level == expected_level
 
 
-@pytest.mark.parametrize(("rsi", "risk_type"), [(75, None), (75.001, "overbought"), (25, None), (24.999, "oversold")])
+@pytest.mark.parametrize(
+    ("rsi", "risk_type"), [(75, None), (75.001, "overbought"), (25, None), (24.999, "oversold")]
+)
 def test_rsi_extremes_are_risk_only_and_strict(rsi: float, risk_type: str | None) -> None:
     score = score_signals(_set_latest(_neutral_frame(), rsi14=rsi), data_warnings=[])
     assert score is not None

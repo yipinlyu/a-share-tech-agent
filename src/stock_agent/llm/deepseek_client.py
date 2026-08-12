@@ -6,11 +6,11 @@ import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Annotated, Any, Protocol
+from typing import Annotated, Protocol
 from uuid import uuid4
 
 from openai import OpenAI
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError
+from pydantic import BaseModel, ConfigDict, StringConstraints, ValidationError
 from stock_agent.domain.models import (
     AIInterpretation,
     AIRawInterpretation,
@@ -172,7 +172,8 @@ class DeepSeekClient:
             {"role": "system", "content": _INTERPRET_SYSTEM_PROMPT},
             {
                 "role": "user",
-                "content": "请解释以下服务端结构化分析：" + _json_text(_safe_analysis_payload(analysis)),
+                "content": "请解释以下服务端结构化分析："
+                + _json_text(_safe_analysis_payload(analysis)),
             },
         ]
         try:
@@ -374,7 +375,9 @@ def _as_mapping(value: Mapping[str, object] | object) -> Mapping[str, object]:
 
 
 def _json_text(value: object) -> str:
-    return json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(",", ":"), sort_keys=True)
+    return json.dumps(
+        value, ensure_ascii=False, allow_nan=False, separators=(",", ":"), sort_keys=True
+    )
 
 
 def _parse_chat(content: str) -> _ChatRaw:

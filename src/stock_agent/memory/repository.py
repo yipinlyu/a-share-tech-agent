@@ -112,9 +112,7 @@ class SQLiteMemory:
         ttl: timedelta | None = None,
     ) -> None:
         now = self._now()
-        effective_ttl = (
-            ttl if ttl is not None else market_data_ttl(requested_end_date, now=now)
-        )
+        effective_ttl = ttl if ttl is not None else market_data_ttl(requested_end_date, now=now)
         self._put("market_cache", cache_key, payload, effective_ttl, now=now)
 
     def get_market(self, cache_key: str) -> Any | None:

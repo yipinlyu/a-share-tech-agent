@@ -1,19 +1,15 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
-
 import pandas as pd
 
 from stock_agent.agent.graph import GraphDependencies
 from stock_agent.domain.models import (
-    AIInterpretation,
     AIRequest,
     AgentError,
     AnalysisRequest,
     AnalysisResult,
     ChatRequest,
     ChatResponse,
-    StockInfo,
     StockQuery,
     StockSearchResult,
 )
