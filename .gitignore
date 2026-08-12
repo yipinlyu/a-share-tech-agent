@@ -1,5 +1,6 @@
 # Local agent design companion
 .superpowers/
+.worktrees/
 
 # Python
 __pycache__/
