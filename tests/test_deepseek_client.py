@@ -213,6 +213,20 @@ def test_schema_or_semantic_failure_gets_exactly_one_repair(invalid) -> None:
     assert "仅修复 JSON" in repair_messages[-1]["content"]
 
 
+def test_interpret_prompt_supplies_schema_and_exact_grounding_contract() -> None:
+    client, fake = make_client([response("bad"), response(valid_raw())])
+
+    result = interpret(client)
+
+    assert isinstance(result, AIInterpretation)
+    initial_user_prompt = fake.chat.completions.calls[0]["messages"][-1]["content"]
+    repair_prompt = fake.chat.completions.calls[1]["messages"][-1]["content"]
+    for prompt in (initial_user_prompt, repair_prompt):
+        assert "JSON Schema" in prompt
+        assert "observed_value 必须逐字复制" in prompt
+        assert "price 必须逐字复制" in prompt
+
+
 def test_repair_failure_returns_safe_error_and_is_not_cached() -> None:
     cache = FakeCache()
     client, fake = make_client([response("bad"), response("still bad")], cache=cache)

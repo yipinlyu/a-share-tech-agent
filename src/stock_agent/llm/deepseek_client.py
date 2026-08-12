@@ -18,6 +18,7 @@ from stock_agent.domain.models import (
     ChatResponse,
 )
 from stock_agent.llm.schemas import (
+    MODEL_RESPONSE_JSON_SCHEMA,
     ai_cache_key,
     flatten_numeric_snapshot,
     parse_and_validate_interpretation,
@@ -36,7 +37,22 @@ _INTERPRET_SYSTEM_PROMPT = """你是受约束的 A 股技术指标解释器。�
 _CHAT_SYSTEM_PROMPT = """你只解释当前这份结构化 A 股技术分析及已有问答。
 不得引入外部事实、重新计算指标、提供个性化买卖决定、仓位或收益承诺。
 只输出 JSON 对象 {\"answer\": \"中文回答\"}，必要时重申仅供学习研究、不构成投资建议。"""
-_REPAIR_PROMPT = "仅修复 JSON，使其严格符合字段、数量、数值和证据约束；不要解释或添加事实。"
+
+
+def _output_contract(snapshot: Mapping[str, float], levels: Mapping[str, float]) -> str:
+    """Give the model the same closed contract enforced by server validation."""
+
+    return (
+        "严格遵循以下 JSON Schema："
+        + _json_text(MODEL_RESPONSE_JSON_SCHEMA)
+        + "。evidence.source_key 只能引用以下事实，observed_value 必须逐字复制对应数值，"
+        "不得四舍五入："
+        + _json_text(snapshot)
+        + "。watch_levels.basis_key 只能引用以下观察位，price 必须逐字复制对应数值，"
+        "不得四舍五入："
+        + _json_text(levels)
+        + "。只输出 JSON 对象。"
+    )
 
 
 class AICache(Protocol):
@@ -172,7 +188,8 @@ class DeepSeekClient:
             {"role": "system", "content": _INTERPRET_SYSTEM_PROMPT},
             {
                 "role": "user",
-                "content": "请解释以下服务端结构化分析："
+                "content": _output_contract(snapshot, levels)
+                + "请解释以下服务端结构化分析："
                 + _json_text(_safe_analysis_payload(analysis)),
             },
         ]
@@ -191,7 +208,10 @@ class DeepSeekClient:
             repair_messages = [
                 *messages,
                 {"role": "assistant", "content": content},
-                {"role": "user", "content": _REPAIR_PROMPT},
+                {
+                    "role": "user",
+                    "content": "仅修复 JSON；不要解释或添加事实。" + _output_contract(snapshot, levels),
+                },
             ]
             try:
                 repaired = self._complete(repair_messages)
