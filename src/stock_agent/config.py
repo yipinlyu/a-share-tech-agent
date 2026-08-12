@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 from typing import Any, Self
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
@@ -28,7 +29,24 @@ class Settings(BaseModel):
             return None
         return value
 
-    @field_validator("deepseek_base_url", "deepseek_model")
+    @field_validator("deepseek_base_url")
+    @classmethod
+    def official_deepseek_base_url(cls, value: str) -> str:
+        parsed = urlsplit(value)
+        if (
+            parsed.scheme != "https"
+            or parsed.hostname != "api.deepseek.com"
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.port is not None
+            or parsed.query
+            or parsed.fragment
+            or parsed.path not in ("", "/")
+        ):
+            raise ValueError("deepseek_base_url must be the official HTTPS endpoint")
+        return "https://api.deepseek.com"
+
+    @field_validator("deepseek_model")
     @classmethod
     def public_setting_cannot_be_blank(cls, value: str) -> str:
         if not value:

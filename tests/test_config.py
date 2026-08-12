@@ -60,7 +60,7 @@ def test_streamlit_secrets_override_environment_without_logging(
     secrets = {
         "TUSHARE_TOKEN": "streamlit-tushare",
         "DEEPSEEK_API_KEY": "streamlit-deepseek",
-        "DEEPSEEK_BASE_URL": "https://streamlit.example/v1",
+        "DEEPSEEK_BASE_URL": "https://api.deepseek.com/",
         "DEEPSEEK_MODEL": "streamlit-model",
     }
     environ = {
@@ -74,7 +74,7 @@ def test_streamlit_secrets_override_environment_without_logging(
 
     assert settings.tushare_token == SecretStr("streamlit-tushare")
     assert settings.deepseek_api_key == SecretStr("streamlit-deepseek")
-    assert settings.deepseek_base_url == "https://streamlit.example/v1"
+    assert settings.deepseek_base_url == "https://api.deepseek.com"
     assert settings.deepseek_model == "streamlit-model"
     for sensitive_value in (*secrets.values(), *environ.values()):
         assert sensitive_value not in caplog.text
@@ -98,3 +98,24 @@ def test_environment_is_used_when_streamlit_secret_is_absent() -> None:
 def test_settings_reject_unknown_configuration() -> None:
     with pytest.raises(ValidationError):
         Settings(unknown="value")  # type: ignore[call-arg]
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "http://api.deepseek.com",
+        "https://user:pass@api.deepseek.com",
+        "https://example.com",
+        "https://api.deepseek.com.evil.example",
+        "https://evil-api.deepseek.com",
+    ],
+)
+def test_settings_reject_non_official_or_insecure_deepseek_urls(base_url: str) -> None:
+    with pytest.raises(ValidationError):
+        Settings(deepseek_base_url=base_url)
+
+
+def test_settings_normalize_official_deepseek_url_trailing_slash() -> None:
+    settings = Settings(deepseek_base_url="https://api.deepseek.com/")
+
+    assert settings.deepseek_base_url == "https://api.deepseek.com"

@@ -359,6 +359,23 @@ def test_period_info_rejects_inverted_or_future_ranges() -> None:
             actual_end_date=date(2024, 12, 31),
             last_trade_date=date(2024, 12, 31),
         )
+
+
+@pytest.mark.parametrize(
+    "last_trade_date",
+    [date(2024, 1, 1), date(2024, 12, 30), date(2025, 1, 1)],
+)
+def test_period_info_requires_last_trade_date_to_equal_actual_end(
+    last_trade_date: date,
+) -> None:
+    with pytest.raises(ValidationError):
+        PeriodInfo(
+            requested_end_date=date(2025, 1, 2),
+            resolved_end_date=date(2025, 1, 2),
+            actual_start_date=date(2024, 1, 2),
+            actual_end_date=date(2024, 12, 31),
+            last_trade_date=last_trade_date,
+        )
     with pytest.raises(ValidationError):
         PeriodInfo(
             requested_end_date=date.today() + timedelta(days=1),
@@ -399,6 +416,31 @@ def test_score_result_enforces_score_probability_and_risk_bounds() -> None:
             ScoreResult(**values)
 
 
+def test_score_result_risks_accept_risk_and_reject_evidence_shape() -> None:
+    values = score().model_dump()
+    values["risks"] = [
+        Risk(risk_type="volatility", evidence_key="atr_ratio", description="波动风险")
+    ]
+    result = ScoreResult(**values)
+
+    assert result.risks == [
+        Risk(risk_type="volatility", evidence_key="atr_ratio", description="波动风险")
+    ]
+
+    for invalid_risk in (
+        evidence(),
+        {
+            "source_key": "atr_ratio",
+            "observed_value": 0.05,
+            "interpretation": "波动率偏高",
+        },
+    ):
+        invalid_values = score().model_dump()
+        invalid_values["risks"] = [invalid_risk]
+        with pytest.raises(ValidationError):
+            ScoreResult(**invalid_values)
+
+
 def test_analysis_result_accepts_the_success_shape() -> None:
     result = AnalysisResult(**success_result_data())
 
@@ -415,6 +457,63 @@ def test_analysis_result_accepts_the_success_shape() -> None:
 def test_success_analysis_requires_every_success_only_field(missing_field: str) -> None:
     values = success_result_data()
     values[missing_field] = None
+
+    with pytest.raises(ValidationError):
+        AnalysisResult(**values)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "invalid_value"),
+    [
+        (
+            "data_quality",
+            DataQuality(
+                raw_row_count=360,
+                display_row_count=242,
+                prewarm_row_count=118,
+                last_trade_date=date(2024, 12, 31),
+                valid=False,
+            ),
+        ),
+        (
+            "data_quality",
+            DataQuality(
+                raw_row_count=0,
+                display_row_count=0,
+                prewarm_row_count=0,
+                last_trade_date=date(2024, 12, 31),
+                valid=True,
+            ),
+        ),
+        (
+            "data_quality",
+            DataQuality(
+                raw_row_count=118,
+                display_row_count=0,
+                prewarm_row_count=118,
+                last_trade_date=date(2024, 12, 31),
+                valid=True,
+            ),
+        ),
+        ("series", pd.DataFrame()),
+        ("snapshot", {}),
+        (
+            "data_quality",
+            DataQuality(
+                raw_row_count=360,
+                display_row_count=242,
+                prewarm_row_count=118,
+                last_trade_date=date(2024, 12, 30),
+                valid=True,
+            ),
+        ),
+    ],
+)
+def test_success_analysis_rejects_invalid_quality_or_empty_outputs(
+    field_name: str, invalid_value: object
+) -> None:
+    values = success_result_data()
+    values[field_name] = invalid_value
 
     with pytest.raises(ValidationError):
         AnalysisResult(**values)
@@ -440,6 +539,38 @@ def test_insufficient_analysis_has_quality_but_no_partial_analysis() -> None:
     values["score"] = score()
     with pytest.raises(ValidationError):
         AnalysisResult(**values)
+
+
+def test_non_success_analysis_does_not_require_success_quality_or_rows() -> None:
+    unavailable_quality = DataQuality(
+        raw_row_count=0,
+        display_row_count=0,
+        prewarm_row_count=0,
+        last_trade_date=None,
+        valid=False,
+    )
+    insufficient = AnalysisResult(
+        status="insufficient_data",
+        stock=stock(),
+        period=period(),
+        data_quality=unavailable_quality,
+        warnings=["数据不足"],
+    )
+    error = AnalysisResult(
+        status="error",
+        stock=stock(),
+        period=period(),
+        data_quality=unavailable_quality,
+        error=AgentError(
+            code="DATA",
+            user_message="数据不可用",
+            retryable=True,
+            trace_id="trace-1",
+        ),
+    )
+
+    assert insufficient.status == "insufficient_data"
+    assert error.status == "error"
 
 
 def test_error_analysis_requires_error_and_rejects_partial_score() -> None:
@@ -472,11 +603,17 @@ def test_ai_interpretation_enforces_schema_and_server_consistency() -> None:
         model_signal="中性偏多",
         summary="趋势偏强，但仍需关注波动。",
         evidence=[
-            evidence(),
-            Evidence(source_key="ma20", observed_value=100.5, interpretation="价格高于均线"),
+            evidence().model_dump(),
+            Evidence(
+                source_key="ma20", observed_value=100.5, interpretation="价格高于均线"
+            ).model_dump(),
         ],
-        risks=[Risk(risk_type="volatility", evidence_key="atr_ratio", description="波动率偏高")],
-        watch_levels=[watch_level()],
+        risks=[
+            Risk(
+                risk_type="volatility", evidence_key="atr_ratio", description="波动率偏高"
+            ).model_dump()
+        ],
+        watch_levels=[watch_level().model_dump()],
     )
     interpretation = AIInterpretation.from_raw(
         raw,
@@ -489,6 +626,9 @@ def test_ai_interpretation_enforces_schema_and_server_consistency() -> None:
 
     assert interpretation.disclaimer == INVESTMENT_DISCLAIMER
     assert interpretation.consistency_status == "consistent"
+    assert isinstance(interpretation.evidence[0], Evidence)
+    assert isinstance(interpretation.risks[0], Risk)
+    assert isinstance(interpretation.watch_levels[0], WatchLevel)
 
     with pytest.raises(ValidationError):
         AIRawInterpretation(**raw.model_dump(), unexpected="model-controlled")
@@ -575,11 +715,17 @@ def test_ai_interpretation_accepts_an_explicit_mismatch() -> None:
         model_signal="偏空",
         summary="模型解读与规则信号不一致。",
         evidence=[
-            evidence(),
-            Evidence(source_key="ma20", observed_value=100.5, interpretation="均线依据"),
+            evidence().model_dump(),
+            Evidence(
+                source_key="ma20", observed_value=100.5, interpretation="均线依据"
+            ).model_dump(),
         ],
-        risks=[Risk(risk_type="signal_conflict", evidence_key=None, description="信号冲突")],
-        watch_levels=[watch_level()],
+        risks=[
+            Risk(
+                risk_type="signal_conflict", evidence_key=None, description="信号冲突"
+            ).model_dump()
+        ],
+        watch_levels=[watch_level().model_dump()],
     )
     interpretation = AIInterpretation.from_raw(
         raw,
@@ -609,6 +755,52 @@ def test_ai_interpretation_enforces_array_and_text_bounds() -> None:
         AIRawInterpretation(**{**base, "watch_levels": []})
     with pytest.raises(ValidationError):
         AIRawInterpretation(**{**base, "summary": "x" * 281})
+
+
+@pytest.mark.parametrize("invalid_number", ["60", True, float("nan"), float("inf"), float("-inf")])
+@pytest.mark.parametrize(
+    ("section", "field_name"),
+    [("evidence", "observed_value"), ("watch_levels", "price")],
+)
+def test_raw_ai_contract_rejects_coerced_or_non_finite_numbers(
+    section: str, field_name: str, invalid_number: object
+) -> None:
+    payload = {
+        "model_signal": "中性",
+        "summary": "中性解读",
+        "evidence": [evidence().model_dump(), evidence().model_dump()],
+        "risks": [Risk(risk_type="other", description="风险")],
+        "watch_levels": [watch_level().model_dump()],
+    }
+    payload[section][0][field_name] = invalid_number
+
+    with pytest.raises(ValidationError):
+        AIRawInterpretation.model_validate(payload)
+
+
+def test_raw_ai_contract_accepts_json_integer_numbers() -> None:
+    raw = AIRawInterpretation.model_validate(
+        {
+            "model_signal": "中性",
+            "summary": "中性解读",
+            "evidence": [
+                {"source_key": "close", "observed_value": 100, "interpretation": "收盘价"},
+                {"source_key": "rsi14", "observed_value": 50, "interpretation": "RSI"},
+            ],
+            "risks": [{"risk_type": "other", "description": "风险"}],
+            "watch_levels": [
+                {
+                    "label": "支撑观察",
+                    "price": 100,
+                    "basis_key": "ma20",
+                    "rationale": "均线",
+                }
+            ],
+        }
+    )
+
+    assert raw.evidence[0].observed_value == 100.0
+    assert raw.watch_levels[0].price == 100.0
 
 
 def test_models_do_not_silently_accept_unknown_fields() -> None:

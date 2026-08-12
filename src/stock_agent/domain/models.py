@@ -260,6 +260,8 @@ class PeriodInfo(DomainModel):
             raise ValueError("actual end date cannot be after resolved end date")
         if self.last_trade_date > self.resolved_end_date:
             raise ValueError("last trade date cannot be after resolved end date")
+        if self.last_trade_date != self.actual_end_date:
+            raise ValueError("last trade date must equal actual end date")
         return self
 
 
@@ -297,7 +299,7 @@ class ScoreResult(DomainModel):
         default_factory=list,
         validation_alias=AliasChoices("conflict_evidence", "conflicts"),
     )
-    risks: list[Evidence] = Field(default_factory=list)
+    risks: list[Risk] = Field(default_factory=list)
     watch_levels: list[WatchLevel] = Field(default_factory=list)
     completeness: UnitFloat = Field(
         default=0,
@@ -385,6 +387,20 @@ class AnalysisResult(DomainModel):
             required = (self.period, self.data_quality, *analysis_fields)
             if any(value is None for value in required) or self.error is not None:
                 raise ValueError("success requires complete analysis fields and no error")
+            assert self.period is not None
+            assert self.data_quality is not None
+            assert self.series is not None
+            assert self.snapshot is not None
+            if not self.data_quality.valid:
+                raise ValueError("success requires valid data quality")
+            if self.data_quality.raw_row_count <= 0 or self.data_quality.display_row_count <= 0:
+                raise ValueError("success requires positive raw and display row counts")
+            if self.series.empty:
+                raise ValueError("success requires a non-empty series")
+            if not self.snapshot:
+                raise ValueError("success requires a non-empty snapshot")
+            if self.data_quality.last_trade_date != self.period.last_trade_date:
+                raise ValueError("data quality and period last trade dates must match")
         elif self.status == "insufficient_data":
             if self.period is None or self.data_quality is None:
                 raise ValueError("insufficient_data requires period and data quality")
@@ -397,17 +413,40 @@ class AnalysisResult(DomainModel):
         return self
 
 
+StrictFiniteFloat = Annotated[float, Field(strict=True, allow_inf_nan=False)]
+StrictPositiveFiniteFloat = Annotated[float, Field(strict=True, gt=0, allow_inf_nan=False)]
+
+
+class AIRawEvidence(DomainModel):
+    source_key: NonEmptyStr
+    observed_value: StrictFiniteFloat
+    interpretation: ShortText
+
+
+class AIRawRisk(DomainModel):
+    risk_type: RiskType
+    evidence_key: NonEmptyStr | None = None
+    description: ShortText
+
+
+class AIRawWatchLevel(DomainModel):
+    label: WatchLabel
+    price: StrictPositiveFiniteFloat
+    basis_key: BasisKey
+    rationale: ShortText
+
+
 class AIRawInterpretation(DomainModel):
     """The only fields accepted from an AI model response."""
 
     model_signal: Signal
     summary: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=280)]
-    evidence: list[Evidence] = Field(min_length=2, max_length=6)
-    risks: list[Risk] = Field(min_length=1, max_length=6)
-    watch_levels: list[WatchLevel] = Field(min_length=1, max_length=6)
+    evidence: list[AIRawEvidence] = Field(min_length=2, max_length=6)
+    risks: list[AIRawRisk] = Field(min_length=1, max_length=6)
+    watch_levels: list[AIRawWatchLevel] = Field(min_length=1, max_length=6)
 
 
-class AIInterpretation(AIRawInterpretation):
+class AIInterpretation(DomainModel):
     """A validated AI response enriched exclusively with server-owned metadata."""
 
     model_config = ConfigDict(
@@ -417,6 +456,11 @@ class AIInterpretation(AIRawInterpretation):
         validate_default=True,
     )
 
+    model_signal: Signal
+    summary: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=280)]
+    evidence: list[Evidence] = Field(min_length=2, max_length=6)
+    risks: list[Risk] = Field(min_length=1, max_length=6)
+    watch_levels: list[WatchLevel] = Field(min_length=1, max_length=6)
     rule_signal: Signal
     consistency_status: ConsistencyStatus
     disclaimer: Literal[INVESTMENT_DISCLAIMER] = INVESTMENT_DISCLAIMER
