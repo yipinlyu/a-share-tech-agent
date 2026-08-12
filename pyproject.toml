@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "a-share-tech-agent"
+version = "0.1.0"
+description = "Explainable A-share technical analysis agent"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "streamlit>=1.60,<1.61",
+    "pandas>=2.2,<3",
+    "numpy>=1.26,<3",
+    "plotly>=6.3,<7",
+    "tushare==1.4.29",
+    "langgraph>=1.0,<2",
+    "openai>=2,<3",
+    "pydantic>=2.7.4,<3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.1,<10",
+    "ruff==0.15.22",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
