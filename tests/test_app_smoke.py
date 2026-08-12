@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from streamlit.testing.v1 import AppTest
 
+from app import _request_ai_interpretation
+from stock_agent.domain.models import AgentError
+
 
 def test_app_starts_without_secrets_and_disables_external_actions() -> None:
     app = AppTest.from_file("app.py").run(timeout=15)
@@ -25,3 +28,11 @@ def test_clear_session_memory_removes_personalized_state() -> None:
     assert app.session_state["recent_searches"] == []
     assert app.session_state["watchlist"] == []
     assert app.session_state["current_analysis"] is None
+
+
+def test_stale_ai_button_event_returns_safe_error_instead_of_asserting() -> None:
+    result = _request_ai_interpretation(None, None)
+
+    assert isinstance(result, AgentError)
+    assert result.code == "VALIDATION"
+    assert result.retryable is False

@@ -14,6 +14,7 @@ from stock_agent.config import Settings
 from stock_agent.data.tushare_client import TushareAdapterError, TushareDataClient
 from stock_agent.domain.models import (
     AIRequest,
+    AgentError,
     AnalysisRequest,
     AnalysisResult,
     ChatRequest,
@@ -321,6 +322,26 @@ def _render_analysis(result: AnalysisResult) -> None:
         render_trace(result)
 
 
+def _request_ai_interpretation(
+    service: AnalysisService | None,
+    analysis: AnalysisResult | None,
+) -> object:
+    """Treat a stale Streamlit button event as user-visible state, not an invariant failure."""
+
+    if (
+        service is None
+        or not isinstance(analysis, AnalysisResult)
+        or analysis.status != "success"
+        or analysis.analysis_id is None
+    ):
+        return AgentError(
+            code="VALIDATION",
+            user_message="当前分析状态已变化，请重新运行规则分析后再生成 AI 解读。",
+            retryable=False,
+        )
+    return service.interpret_with_ai(AIRequest(analysis_id=analysis.analysis_id), analysis)
+
+
 def _render_ai(
     service: AnalysisService | None, settings: Settings, analysis: AnalysisResult | None
 ) -> None:
@@ -333,11 +354,8 @@ def _render_ai(
         and analysis.analysis_id is not None
     )
     if st.button("生成AI解读", key="generate_ai", type="primary", disabled=not can_ai):
-        assert service is not None and analysis is not None and analysis.analysis_id is not None
         with st.spinner("正在请求 DeepSeek 并校验结构化证据…"):
-            st.session_state.ai_interpretation = service.interpret_with_ai(
-                AIRequest(analysis_id=analysis.analysis_id), analysis
-            )
+            st.session_state.ai_interpretation = _request_ai_interpretation(service, analysis)
     render_ai_interpretation(st.session_state.ai_interpretation)
     st.markdown("### 当前分析追问")
     memory: ChatMemory = st.session_state.chat_memory
