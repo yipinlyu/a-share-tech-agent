@@ -3,6 +3,7 @@
 from stock_agent.domain.models import (
     INVESTMENT_DISCLAIMER,
     AIInterpretation,
+    AIRawInterpretation,
     AIRequest,
     AgentError,
     AnalysisRequest,
@@ -24,6 +25,7 @@ from stock_agent.domain.models import (
 __all__ = [
     "INVESTMENT_DISCLAIMER",
     "AIInterpretation",
+    "AIRawInterpretation",
     "AIRequest",
     "AgentError",
     "AnalysisRequest",

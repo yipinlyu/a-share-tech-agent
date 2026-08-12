@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from stock_agent.domain.models import (
     INVESTMENT_DISCLAIMER,
     AIInterpretation,
+    AIRawInterpretation,
     AIRequest,
     AgentError,
     AnalysisRequest,
@@ -467,7 +468,7 @@ def test_error_analysis_requires_error_and_rejects_partial_score() -> None:
 
 
 def test_ai_interpretation_enforces_schema_and_server_consistency() -> None:
-    interpretation = AIInterpretation(
+    raw = AIRawInterpretation(
         model_signal="中性偏多",
         summary="趋势偏强，但仍需关注波动。",
         evidence=[
@@ -476,8 +477,10 @@ def test_ai_interpretation_enforces_schema_and_server_consistency() -> None:
         ],
         risks=[Risk(risk_type="volatility", evidence_key="atr_ratio", description="波动率偏高")],
         watch_levels=[watch_level()],
+    )
+    interpretation = AIInterpretation.from_raw(
+        raw,
         rule_signal="中性偏多",
-        consistency_status="consistent",
         model="deepseek-v4-flash",
         prompt_version="prompt-v1",
         cache_hit=False,
@@ -487,19 +490,88 @@ def test_ai_interpretation_enforces_schema_and_server_consistency() -> None:
     assert interpretation.disclaimer == INVESTMENT_DISCLAIMER
     assert interpretation.consistency_status == "consistent"
 
-    values = interpretation.model_dump()
-    values["model_signal"] = "偏空"
     with pytest.raises(ValidationError):
-        AIInterpretation(**values)
+        AIRawInterpretation(**raw.model_dump(), unexpected="model-controlled")
 
-    values = interpretation.model_dump()
-    values["unexpected"] = "model-controlled"
+
+def test_raw_ai_contract_rejects_server_fields_and_requires_enrichment_factory() -> None:
+    raw_payload = {
+        "model_signal": "中性偏多",
+        "summary": "趋势偏强，但仍需关注波动。",
+        "evidence": [
+            evidence().model_dump(),
+            Evidence(
+                source_key="ma20",
+                observed_value=100.5,
+                interpretation="价格高于均线",
+            ).model_dump(),
+        ],
+        "risks": [
+            Risk(
+                risk_type="volatility",
+                evidence_key="atr_ratio",
+                description="波动率偏高",
+            ).model_dump()
+        ],
+        "watch_levels": [watch_level().model_dump()],
+    }
+    server_fields = {
+        "rule_signal": "偏空",
+        "consistency_status": "consistent",
+        "disclaimer": "伪造免责声明",
+        "model": "forged-model",
+        "prompt_version": "forged-prompt",
+        "cache_hit": True,
+        "generated_at": datetime.now(timezone.utc),
+    }
+
+    for field_name, forged_value in server_fields.items():
+        with pytest.raises(ValidationError):
+            AIRawInterpretation.model_validate({**raw_payload, field_name: forged_value})
+
+    raw = AIRawInterpretation.model_validate(raw_payload)
+    generated_at = datetime(2024, 12, 31, 8, tzinfo=timezone.utc)
+    enriched = AIInterpretation.from_raw(
+        raw,
+        rule_signal="中性偏多",
+        model="deepseek-v4-flash",
+        prompt_version="prompt-v1",
+        cache_hit=True,
+        generated_at=generated_at,
+    )
+
+    assert enriched.rule_signal == "中性偏多"
+    assert enriched.consistency_status == "consistent"
+    assert enriched.disclaimer == INVESTMENT_DISCLAIMER
+    assert enriched.model == "deepseek-v4-flash"
+    assert enriched.prompt_version == "prompt-v1"
+    assert enriched.cache_hit is True
+    assert enriched.generated_at == generated_at
+
     with pytest.raises(ValidationError):
-        AIInterpretation(**values)
+        AIInterpretation(
+            **raw_payload,
+            rule_signal="中性偏多",
+            consistency_status="consistent",
+            disclaimer=INVESTMENT_DISCLAIMER,
+            model="deepseek-v4-flash",
+            prompt_version="prompt-v1",
+            cache_hit=False,
+            generated_at=generated_at,
+        )
+
+    with pytest.raises(TypeError):
+        AIInterpretation.from_raw(
+            {**raw_payload, **server_fields},  # type: ignore[arg-type]
+            rule_signal="中性偏多",
+            model="deepseek-v4-flash",
+            prompt_version="prompt-v1",
+            generated_at=generated_at,
+        )
 
 
 def test_ai_interpretation_accepts_an_explicit_mismatch() -> None:
-    interpretation = AIInterpretation(
+    raw = AIRawInterpretation(
         model_signal="偏空",
         summary="模型解读与规则信号不一致。",
         evidence=[
@@ -508,8 +580,10 @@ def test_ai_interpretation_accepts_an_explicit_mismatch() -> None:
         ],
         risks=[Risk(risk_type="signal_conflict", evidence_key=None, description="信号冲突")],
         watch_levels=[watch_level()],
+    )
+    interpretation = AIInterpretation.from_raw(
+        raw,
         rule_signal="中性偏多",
-        consistency_status="mismatch",
         model="deepseek-v4-flash",
         prompt_version="prompt-v1",
         generated_at=datetime.now(timezone.utc),
@@ -525,21 +599,16 @@ def test_ai_interpretation_enforces_array_and_text_bounds() -> None:
         "evidence": [evidence(), evidence()],
         "risks": [Risk(risk_type="other", description="risk")],
         "watch_levels": [watch_level()],
-        "rule_signal": "中性",
-        "consistency_status": "consistent",
-        "model": "deepseek-v4-flash",
-        "prompt_version": "prompt-v1",
-        "generated_at": datetime.now(timezone.utc),
     }
 
     with pytest.raises(ValidationError):
-        AIInterpretation(**{**base, "evidence": [evidence()]})
+        AIRawInterpretation(**{**base, "evidence": [evidence()]})
     with pytest.raises(ValidationError):
-        AIInterpretation(**{**base, "risks": []})
+        AIRawInterpretation(**{**base, "risks": []})
     with pytest.raises(ValidationError):
-        AIInterpretation(**{**base, "watch_levels": []})
+        AIRawInterpretation(**{**base, "watch_levels": []})
     with pytest.raises(ValidationError):
-        AIInterpretation(**{**base, "summary": "x" * 281})
+        AIRawInterpretation(**{**base, "summary": "x" * 281})
 
 
 def test_models_do_not_silently_accept_unknown_fields() -> None:

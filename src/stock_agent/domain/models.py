@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from datetime import date, datetime
-from typing import Annotated, Literal, Self
+from typing import Annotated, Any, Literal, Self
 from uuid import UUID, uuid4
 
 import pandas as pd
@@ -14,6 +14,7 @@ from pydantic import (
     ConfigDict,
     Field,
     StringConstraints,
+    ValidationInfo,
     field_validator,
     model_validator,
 )
@@ -59,6 +60,8 @@ SnapshotValue = str | int | FiniteFloat | bool | None
 _A_SHARE_CODE = re.compile(
     r"^(?:(?:60|68)\d{4}\.SH|(?:00|30)\d{4}\.SZ|(?:4|8)\d{5}\.BJ|92\d{4}\.BJ)$"
 )
+_AI_ENRICHMENT_CONTEXT = "server_enrichment"
+_AI_ENRICHMENT_TOKEN = object()
 
 
 class DomainModel(BaseModel):
@@ -394,12 +397,26 @@ class AnalysisResult(DomainModel):
         return self
 
 
-class AIInterpretation(DomainModel):
+class AIRawInterpretation(DomainModel):
+    """The only fields accepted from an AI model response."""
+
     model_signal: Signal
     summary: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=280)]
     evidence: list[Evidence] = Field(min_length=2, max_length=6)
     risks: list[Risk] = Field(min_length=1, max_length=6)
     watch_levels: list[WatchLevel] = Field(min_length=1, max_length=6)
+
+
+class AIInterpretation(AIRawInterpretation):
+    """A validated AI response enriched exclusively with server-owned metadata."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+        str_strip_whitespace=True,
+        validate_default=True,
+    )
+
     rule_signal: Signal
     consistency_status: ConsistencyStatus
     disclaimer: Literal[INVESTMENT_DISCLAIMER] = INVESTMENT_DISCLAIMER
@@ -407,6 +424,46 @@ class AIInterpretation(DomainModel):
     prompt_version: NonEmptyStr
     cache_hit: bool = False
     generated_at: datetime
+
+    @classmethod
+    def from_raw(
+        cls,
+        raw: AIRawInterpretation,
+        *,
+        rule_signal: Signal,
+        model: NonEmptyStr,
+        prompt_version: NonEmptyStr,
+        generated_at: datetime,
+        cache_hit: bool = False,
+    ) -> Self:
+        """Attach trusted server metadata to an already validated model response."""
+
+        if not isinstance(raw, AIRawInterpretation):
+            raise TypeError("raw must be an AIRawInterpretation")
+        consistency: ConsistencyStatus = (
+            "consistent" if raw.model_signal == rule_signal else "mismatch"
+        )
+        return cls.model_validate(
+            {
+                **raw.model_dump(),
+                "rule_signal": rule_signal,
+                "consistency_status": consistency,
+                "disclaimer": INVESTMENT_DISCLAIMER,
+                "model": model,
+                "prompt_version": prompt_version,
+                "cache_hit": cache_hit,
+                "generated_at": generated_at,
+            },
+            context={_AI_ENRICHMENT_CONTEXT: _AI_ENRICHMENT_TOKEN},
+        )
+
+    @model_validator(mode="before")
+    @classmethod
+    def require_enrichment_factory(cls, data: Any, info: ValidationInfo) -> Any:
+        context = info.context or {}
+        if context.get(_AI_ENRICHMENT_CONTEXT) is not _AI_ENRICHMENT_TOKEN:
+            raise ValueError("AIInterpretation must be created with from_raw")
+        return data
 
     @model_validator(mode="after")
     def valid_consistency_and_timestamp(self) -> Self:
