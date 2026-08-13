@@ -70,6 +70,7 @@ _AI_ANALYSIS = {
     "snapshot": {"close": 100.0, "ma20": 99.5, "atr_ratio": 0.02},
     "score": {
         "signal": "中性偏多",
+        "risks": _VALID_AI_PAYLOAD["risks"],
         "watch_levels": _VALID_AI_PAYLOAD["watch_levels"],
     },
 }
@@ -498,6 +499,7 @@ def _evaluate_ai_grounding() -> dict[str, Any]:
                 json.dumps(payload, ensure_ascii=False),
                 snapshot=_AI_ANALYSIS["snapshot"],
                 watch_levels=_AI_ANALYSIS["score"]["watch_levels"],
+                server_risks=_AI_ANALYSIS["score"]["risks"],
             )
             actual_valid = True
         except (TypeError, ValueError):

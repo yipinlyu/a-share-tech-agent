@@ -7,7 +7,9 @@ from stock_agent.domain.models import AgentError
 
 
 def test_app_starts_without_secrets_and_disables_external_actions() -> None:
-    app = AppTest.from_file("app.py").run(timeout=15)
+    app = AppTest.from_file("app.py")
+    app.secrets = {"TUSHARE_TOKEN": "", "DEEPSEEK_API_KEY": ""}
+    app = app.run(timeout=15)
 
     assert not app.exception
     assert any("Tushare" in warning.value for warning in app.warning)

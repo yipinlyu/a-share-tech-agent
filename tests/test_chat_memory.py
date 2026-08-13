@@ -26,7 +26,11 @@ class FakeCompletions:
         outcome = self.outcomes.pop(0)
         if isinstance(outcome, BaseException):
             raise outcome
-        content = json.dumps({"answer": outcome}, ensure_ascii=False)
+        content = (
+            outcome
+            if isinstance(outcome, str) and outcome.startswith("{")
+            else json.dumps({"answer": outcome}, ensure_ascii=False)
+        )
         return SimpleNamespace(
             id="chat-1",
             model="deepseek-v4-flash",
@@ -142,3 +146,17 @@ def test_failed_followup_does_not_append_question_or_partial_answer() -> None:
     assert result.turn_count == 1
     assert len(fake.chat.completions.calls) == 1
     assert memory.history == before
+
+
+def test_malformed_followup_json_is_repaired_once_without_half_turn() -> None:
+    client, fake = client_with(['{"answer": {}}', "修复后回答"])
+    memory = ChatMemory()
+    memory.set_analysis("analysis-a", ANALYSIS)
+
+    result = client.follow_up(memory, "为什么是中性？")
+
+    assert result.error is None
+    assert result.answer == "修复后回答"
+    assert len(fake.chat.completions.calls) == 2
+    assert "仅修复为 JSON" in fake.chat.completions.calls[1]["messages"][-1]["content"]
+    assert memory.turn_count == 1

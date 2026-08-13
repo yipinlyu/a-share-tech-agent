@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -21,14 +22,16 @@ from stock_agent.llm.schemas import (
     MODEL_RESPONSE_JSON_SCHEMA,
     ai_cache_key,
     flatten_numeric_snapshot,
+    normalize_server_risks,
     parse_and_validate_interpretation,
     watch_level_mapping,
 )
 
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 DEFAULT_MODEL = "deepseek-v4-flash"
-DEFAULT_PROMPT_VERSION = "prompt-v1"
+DEFAULT_PROMPT_VERSION = "prompt-v2"
 MAX_CHAT_PAIRS = 10
+_LOGGER = logging.getLogger(__name__)
 
 _INTERPRET_SYSTEM_PROMPT = """你是受约束的 A 股技术指标解释器。仅依据用户提供的结构化事实输出 JSON。
 不得重新计算、覆盖或伪造任何指标、规则信号和观察位；不得引入外部事实。
@@ -37,9 +40,14 @@ _INTERPRET_SYSTEM_PROMPT = """你是受约束的 A 股技术指标解释器。�
 _CHAT_SYSTEM_PROMPT = """你只解释当前这份结构化 A 股技术分析及已有问答。
 不得引入外部事实、重新计算指标、提供个性化买卖决定、仓位或收益承诺。
 只输出 JSON 对象 {\"answer\": \"中文回答\"}，必要时重申仅供学习研究、不构成投资建议。"""
+_CHAT_REPAIR_PROMPT = '仅修复为 JSON 对象 {"answer":"中文回答"}；不要解释或添加事实。'
 
 
-def _output_contract(snapshot: Mapping[str, float], levels: Mapping[str, float]) -> str:
+def _output_contract(
+    snapshot: Mapping[str, float],
+    levels: Mapping[str, float],
+    risks: Sequence[Mapping[str, object]],
+) -> str:
     """Give the model the same closed contract enforced by server validation."""
 
     return (
@@ -48,10 +56,13 @@ def _output_contract(snapshot: Mapping[str, float], levels: Mapping[str, float])
         + "。evidence.source_key 只能引用以下事实，observed_value 必须逐字复制对应数值，"
         "不得四舍五入："
         + _json_text(snapshot)
+        + "。risks 只能选择以下服务端风险事实（可输出子集）："
+        + _json_text(risks)
+        + "。选择风险时三个字段必须逐字复制。若列表为空，risks 必须为 []，"
+        "不得创建 other 风险。"
         + "。watch_levels.basis_key 只能引用以下观察位，price 必须逐字复制对应数值，"
-        "不得四舍五入："
-        + _json_text(levels)
-        + "。只输出 JSON 对象。"
+        "不得四舍五入：" + _json_text(levels) + "。请从服务端列表中输出 1–7 个不重复观察位，"
+        "不得使用规则名作为 evidence.source_key。" + "只输出 JSON 对象。"
     )
 
 
@@ -166,13 +177,13 @@ class DeepSeekClient:
 
         try:
             analysis = _as_mapping(structured_analysis)
-            clean_id, snapshot, levels, rule_signal = _analysis_facts(analysis_id, analysis)
+            clean_id, snapshot, levels, risks, rule_signal = _analysis_facts(analysis_id, analysis)
             key = ai_cache_key(clean_id, self.model, self.prompt_version)
         except (TypeError, ValueError, ValidationError):
             return _error("VALIDATION", "当前结构化分析无效，无法生成 AI 解读。", False)
 
         if not force_refresh:
-            cached = self._read_cache(key, snapshot=snapshot, levels=levels)
+            cached = self._read_cache(key, snapshot=snapshot, levels=levels, risks=risks)
             if cached is not None:
                 raw, generated_at = cached
                 return AIInterpretation.from_raw(
@@ -188,9 +199,9 @@ class DeepSeekClient:
             {"role": "system", "content": _INTERPRET_SYSTEM_PROMPT},
             {
                 "role": "user",
-                "content": _output_contract(snapshot, levels)
+                "content": _output_contract(snapshot, levels, risks)
                 + "请解释以下服务端结构化分析："
-                + _json_text(_safe_analysis_payload(analysis)),
+                + _json_text(_safe_interpretation_payload(analysis, rule_signal=rule_signal)),
             },
         ]
         try:
@@ -203,14 +214,16 @@ class DeepSeekClient:
                 content,
                 snapshot=snapshot,
                 watch_levels=levels,
+                server_risks=risks,
             )
-        except (ValueError, TypeError, ValidationError):
+        except (ValueError, TypeError, ValidationError) as initial_validation_error:
             repair_messages = [
                 *messages,
                 {"role": "assistant", "content": content},
                 {
                     "role": "user",
-                    "content": "仅修复 JSON；不要解释或添加事实。" + _output_contract(snapshot, levels),
+                    "content": "仅修复 JSON；不要解释或添加事实。"
+                    + _output_contract(snapshot, levels, risks),
                 },
             ]
             try:
@@ -222,9 +235,24 @@ class DeepSeekClient:
                     repaired,
                     snapshot=snapshot,
                     watch_levels=levels,
+                    server_risks=risks,
                 )
-            except (ValueError, TypeError, ValidationError):
-                return _error("MODEL", "AI 返回内容无法安全校验，请稍后重试。", True)
+            except (ValueError, TypeError, ValidationError) as repair_validation_error:
+                trace_id = str(uuid4())
+                error = AgentError(
+                    code="MODEL",
+                    user_message=(f"AI 返回内容无法安全校验，请稍后重试。（诊断编号：{trace_id}）"),
+                    retryable=True,
+                    trace_id=trace_id,
+                )
+                _LOGGER.warning(
+                    "DeepSeek interpretation validation failed after repair "
+                    "initial=%s repair=%s trace_id=%s",
+                    _validation_category(initial_validation_error),
+                    _validation_category(repair_validation_error),
+                    error.trace_id,
+                )
+                return error
 
         generated_at = _aware_datetime(self._clock())
         self._write_cache(key, raw, generated_at)
@@ -270,7 +298,7 @@ class DeepSeekClient:
             repair_messages = [
                 *messages,
                 {"role": "assistant", "content": content},
-                {"role": "user", "content": _REPAIR_PROMPT},
+                {"role": "user", "content": _CHAT_REPAIR_PROMPT},
             ]
             try:
                 repaired = self._complete(repair_messages)
@@ -312,6 +340,7 @@ class DeepSeekClient:
         *,
         snapshot: Mapping[str, object],
         levels: Mapping[str, float],
+        risks: Sequence[Mapping[str, object]],
     ) -> tuple[AIRawInterpretation, datetime] | None:
         if self._cache is None:
             return None
@@ -325,6 +354,7 @@ class DeepSeekClient:
                 _json_text(raw_payload),
                 snapshot=snapshot,
                 watch_levels=levels,
+                server_risks=risks,
             )
             generated_at = _parse_datetime(generated_value)
             return raw, generated_at
@@ -347,7 +377,7 @@ class DeepSeekClient:
 def _analysis_facts(
     analysis_id: str,
     analysis: Mapping[str, object],
-) -> tuple[str, dict[str, float], dict[str, float], str]:
+) -> tuple[str, dict[str, float], dict[str, float], list[dict[str, object]], str]:
     clean_id = analysis_id.strip() if isinstance(analysis_id, str) else ""
     if not clean_id:
         raise ValueError("analysis_id is required")
@@ -356,13 +386,59 @@ def _analysis_facts(
     if not isinstance(snapshot_raw, Mapping) or not isinstance(score_raw, Mapping):
         raise ValueError("analysis snapshot and score are required")
     snapshot = flatten_numeric_snapshot(snapshot_raw)
-    if not snapshot:
-        raise ValueError("analysis snapshot has no finite whitelisted facts")
+    if len(snapshot) < 2:
+        raise ValueError("analysis snapshot needs at least two finite whitelisted facts")
     signal = score_raw.get("signal")
     if signal not in ("偏多", "中性偏多", "中性", "中性偏空", "偏空"):
         raise ValueError("rule signal is invalid")
     levels = watch_level_mapping(score_raw.get("watch_levels", ()))  # type: ignore[arg-type]
-    return clean_id, snapshot, levels, str(signal)
+    if not levels:
+        raise ValueError("analysis needs at least one server watch level")
+    score_risks = score_raw.get("risks", ())
+    if not isinstance(score_risks, (list, tuple)):
+        raise ValueError("analysis risks are invalid")
+    risks = normalize_server_risks(score_risks, snapshot=snapshot)
+    return clean_id, snapshot, levels, risks, str(signal)
+
+
+def _safe_interpretation_payload(
+    analysis: Mapping[str, object], *, rule_signal: str
+) -> dict[str, object]:
+    """Keep rule names and derived rule values out of the model evidence namespace."""
+
+    payload: dict[str, object] = {"rule_signal": rule_signal}
+    stock = analysis.get("stock")
+    if isinstance(stock, Mapping):
+        payload["stock"] = {
+            key: _jsonable(stock[key]) for key in ("ts_code", "name", "market") if key in stock
+        }
+    period = analysis.get("period")
+    if isinstance(period, Mapping):
+        payload["period"] = {
+            key: _jsonable(period[key])
+            for key in ("resolved_end_date", "last_trade_date", "adjustment")
+            if key in period
+        }
+    score = analysis.get("score")
+    if isinstance(score, Mapping):
+        summaries: dict[str, list[str]] = {}
+        for output_key, source_key in (
+            ("positive", "positive_evidence"),
+            ("negative", "negative_evidence"),
+            ("conflict", "conflict_evidence"),
+        ):
+            raw_items = score.get(source_key, ())
+            if not isinstance(raw_items, (list, tuple)):
+                continue
+            texts = []
+            for item in raw_items:
+                if isinstance(item, Mapping):
+                    text = item.get("interpretation")
+                    if isinstance(text, str) and text.strip():
+                        texts.append(text.strip()[:120])
+            summaries[output_key] = texts[:6]
+        payload["rule_observations"] = summaries
+    return payload
 
 
 def _safe_analysis_payload(analysis: Mapping[str, object]) -> dict[str, object]:
@@ -420,6 +496,20 @@ def _aware_datetime(value: datetime) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
         return value.replace(tzinfo=timezone.utc)
     return value
+
+
+def _validation_category(exc: BaseException) -> str:
+    """Return a value-free category safe for operational logs."""
+
+    if isinstance(exc, ValidationError):
+        locations = {str(error.get("loc", ("schema",))[0]) for error in exc.errors()}
+        return "schema:" + ",".join(sorted(locations))
+    name = type(exc).__name__
+    if name == "SemanticValidationError":
+        return "grounding"
+    if isinstance(exc, json.JSONDecodeError):
+        return "json"
+    return "validation"
 
 
 def _status_code(exc: BaseException) -> int | None:

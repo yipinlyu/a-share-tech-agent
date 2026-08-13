@@ -6,6 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from stock_agent.llm.schemas import (
+    MODEL_RESPONSE_JSON_SCHEMA,
     NUMERIC_SOURCE_KEYS,
     SemanticValidationError,
     ai_cache_key,
@@ -33,6 +34,13 @@ WATCH_LEVELS = {
     "close_minus_atr": 98.0,
     "close_plus_atr": 102.0,
 }
+SERVER_RISKS = [
+    {
+        "risk_type": "volatility",
+        "evidence_key": "atr_ratio",
+        "description": "波动仍需观察",
+    }
+]
 
 
 def raw_payload() -> dict[str, object]:
@@ -61,11 +69,12 @@ def raw_payload() -> dict[str, object]:
     }
 
 
-def parse(payload: dict[str, object]):
+def parse(payload: dict[str, object], *, server_risks=SERVER_RISKS):
     return parse_and_validate_interpretation(
         json.dumps(payload, ensure_ascii=False, allow_nan=True),
         snapshot=SNAPSHOT,
         watch_levels=WATCH_LEVELS,
+        server_risks=server_risks,
     )
 
 
@@ -106,22 +115,31 @@ def test_valid_minimum_payload_is_grounded() -> None:
 
 def test_valid_maximum_arrays_are_accepted() -> None:
     payload = raw_payload()
+    evidence_facts = (
+        ("close", 100.0),
+        ("pct_chg", 1.25),
+        ("ma20", 99.5),
+        ("rsi14", 55.0),
+        ("atr14", 2.0),
+        ("atr_ratio", 0.02),
+    )
     payload["evidence"] = [
-        {"source_key": "close", "observed_value": 100.0, "interpretation": str(i)} for i in range(6)
+        {"source_key": key, "observed_value": value, "interpretation": str(i)}
+        for i, (key, value) in enumerate(evidence_facts)
     ]
-    payload["risks"] = [
-        {"risk_type": "other", "evidence_key": "close", "description": str(i)} for i in range(6)
-    ]
+    payload["risks"] = []
     payload["watch_levels"] = [
         {
             "label": "波动参考",
-            "price": 102.0,
-            "basis_key": "close_plus_atr",
+            "price": price,
+            "basis_key": basis,
             "rationale": str(i),
         }
-        for i in range(6)
+        for i, (basis, price) in enumerate(WATCH_LEVELS.items())
     ]
     assert len(parse(payload).evidence) == 6
+    assert len(parse(payload).watch_levels) == 7
+    assert MODEL_RESPONSE_JSON_SCHEMA["properties"]["watch_levels"]["maxItems"] == 7
 
 
 @pytest.mark.parametrize(
@@ -132,8 +150,6 @@ def test_valid_maximum_arrays_are_accepted() -> None:
         {"model_signal": "强烈买入"},
         {"summary": ""},
         {"evidence": []},
-        {"risks": []},
-        {"watch_levels": []},
     ],
 )
 def test_raw_schema_rejects_extra_invalid_or_out_of_bounds_fields(change) -> None:
@@ -157,8 +173,19 @@ def test_semantics_reject_hallucinated_or_missing_evidence_keys() -> None:
 
     payload = raw_payload()
     payload["risks"][0]["evidence_key"] = "macd"  # type: ignore[index]
-    with pytest.raises(SemanticValidationError, match="evidence_key"):
+    with pytest.raises(SemanticValidationError, match="server risk"):
         parse(payload)
+
+
+def test_empty_model_risks_are_valid_but_invented_risks_are_rejected() -> None:
+    payload = raw_payload()
+    payload["risks"] = []
+    assert parse(payload, server_risks=[]).risks == []
+
+    payload = raw_payload()
+    payload["risks"] = [{"risk_type": "other", "description": "伪造风险"}]
+    with pytest.raises(SemanticValidationError, match="server risk"):
+        parse(payload, server_risks=[])
 
 
 @pytest.mark.parametrize("observed", [100.001, 99.999])

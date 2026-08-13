@@ -442,8 +442,8 @@ class AIRawInterpretation(DomainModel):
     model_signal: Signal
     summary: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=280)]
     evidence: list[AIRawEvidence] = Field(min_length=2, max_length=6)
-    risks: list[AIRawRisk] = Field(min_length=1, max_length=6)
-    watch_levels: list[AIRawWatchLevel] = Field(min_length=1, max_length=6)
+    risks: list[AIRawRisk] = Field(default_factory=list, max_length=6)
+    watch_levels: list[AIRawWatchLevel] = Field(min_length=1, max_length=7)
 
 
 class AIInterpretation(DomainModel):
@@ -459,8 +459,8 @@ class AIInterpretation(DomainModel):
     model_signal: Signal
     summary: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=280)]
     evidence: list[Evidence] = Field(min_length=2, max_length=6)
-    risks: list[Risk] = Field(min_length=1, max_length=6)
-    watch_levels: list[WatchLevel] = Field(min_length=1, max_length=6)
+    risks: list[Risk] = Field(default_factory=list, max_length=6)
+    watch_levels: list[WatchLevel] = Field(min_length=1, max_length=7)
     rule_signal: Signal
     consistency_status: ConsistencyStatus
     disclaimer: Literal[INVESTMENT_DISCLAIMER] = INVESTMENT_DISCLAIMER

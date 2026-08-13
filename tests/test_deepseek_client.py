@@ -17,7 +17,17 @@ WATCH_LEVELS = [{"label": "支撑观察", "price": 99.5, "basis_key": "ma20", "r
 ANALYSIS = {
     "stock": {"ts_code": "600519.SH", "name": "贵州茅台"},
     "snapshot": SNAPSHOT,
-    "score": {"signal": "中性偏多", "watch_levels": WATCH_LEVELS},
+    "score": {
+        "signal": "中性偏多",
+        "risks": [
+            {
+                "risk_type": "volatility",
+                "evidence_key": "atr_ratio",
+                "description": "波动风险",
+            }
+        ],
+        "watch_levels": WATCH_LEVELS,
+    },
 }
 
 
@@ -94,7 +104,7 @@ def make_client(outcomes, *, cache=None, model="deepseek-v4-flash"):
     client = DeepSeekClient(
         api_key="sk-test-only",
         model=model,
-        prompt_version="prompt-v1",
+        prompt_version="prompt-v2",
         cache=cache,
         openai_factory=fake.factory,
         clock=lambda: NOW,
@@ -149,7 +159,7 @@ def test_server_owns_all_enrichment_and_caches_only_validated_raw_result() -> No
     assert result.consistency_status == "consistent"
     assert result.disclaimer == INVESTMENT_DISCLAIMER
     assert result.model == "deepseek-v4-flash"
-    assert result.prompt_version == "prompt-v1"
+    assert result.prompt_version == "prompt-v2"
     assert result.cache_hit is False
     assert result.generated_at == NOW
     assert len(cache.put_calls) == 1
@@ -184,8 +194,8 @@ def test_cache_key_is_bound_to_configured_actual_model() -> None:
     assert isinstance(result, AIInterpretation)
     assert second_fake.chat.completions.calls[0]["model"] == "deepseek-v4-pro"
     assert set(cache.values) == {
-        ai_cache_key("analysis-1", "deepseek-v4-flash", "prompt-v1"),
-        ai_cache_key("analysis-1", "deepseek-v4-pro", "prompt-v1"),
+        ai_cache_key("analysis-1", "deepseek-v4-flash", "prompt-v2"),
+        ai_cache_key("analysis-1", "deepseek-v4-pro", "prompt-v2"),
     }
 
 
@@ -225,6 +235,101 @@ def test_interpret_prompt_supplies_schema_and_exact_grounding_contract() -> None
         assert "JSON Schema" in prompt
         assert "observed_value 必须逐字复制" in prompt
         assert "price 必须逐字复制" in prompt
+
+
+def test_seven_server_watch_levels_are_accepted_without_repair() -> None:
+    basis_and_prices = [
+        ("recent_20d_low", 95.0),
+        ("recent_20d_high", 105.0),
+        ("ma20", 99.5),
+        ("boll_upper", 106.0),
+        ("boll_lower", 94.0),
+        ("close_minus_atr", 98.0),
+        ("close_plus_atr", 102.0),
+    ]
+    levels = [
+        {
+            "label": "波动参考",
+            "price": price,
+            "basis_key": basis,
+            "rationale": basis,
+        }
+        for basis, price in basis_and_prices
+    ]
+    analysis = {
+        **ANALYSIS,
+        "score": {"signal": "中性偏多", "watch_levels": levels, "risks": []},
+    }
+    client, fake = make_client([response(valid_raw(risks=[], watch_levels=levels))])
+
+    result = client.interpret("analysis-1", analysis)
+
+    assert isinstance(result, AIInterpretation)
+    assert len(result.watch_levels) == 7
+    assert len(fake.chat.completions.calls) == 1
+
+
+def test_interpretation_prompt_isolates_rule_keys_and_requires_server_risks() -> None:
+    analysis = {
+        **ANALYSIS,
+        "score": {
+            "signal": "中性偏多",
+            "positive_evidence": [
+                {
+                    "source_key": "price_ma20",
+                    "observed_value": 1.0,
+                    "interpretation": "收盘价高于 MA20",
+                }
+            ],
+            "conflict_evidence": [
+                {
+                    "source_key": "price_obv_divergence_10d",
+                    "observed_value": -0.01,
+                    "interpretation": "价格与 OBV 方向背离",
+                }
+            ],
+            "risks": [
+                {
+                    "risk_type": "signal_conflict",
+                    "evidence_key": "price_obv_divergence_10d",
+                    "description": "价格与 OBV 方向背离",
+                }
+            ],
+            "watch_levels": WATCH_LEVELS,
+        },
+    }
+    model_risk = {
+        "risk_type": "signal_conflict",
+        "evidence_key": None,
+        "description": "价格与 OBV 方向背离",
+    }
+    client, fake = make_client([response(valid_raw(risks=[model_risk]))])
+
+    result = client.interpret("analysis-1", analysis)
+
+    assert isinstance(result, AIInterpretation)
+    prompt = fake.chat.completions.calls[0]["messages"][-1]["content"]
+    payload = json.loads(prompt.split("请解释以下服务端结构化分析：", 1)[1])
+    serialized_payload = json.dumps(payload, ensure_ascii=False)
+    assert "source_key" not in serialized_payload
+    assert "evidence_key" not in serialized_payload
+    assert "price_ma20" not in serialized_payload
+    assert "price_obv_divergence_10d" not in serialized_payload
+    assert payload["rule_observations"]["positive"] == ["收盘价高于 MA20"]
+
+
+def test_model_cannot_invent_risk_when_server_risk_list_is_empty() -> None:
+    invented = valid_raw(
+        risks=[{"risk_type": "other", "evidence_key": None, "description": "未知风险"}]
+    )
+    client, fake = make_client([response(invented), response(valid_raw(risks=[]))])
+
+    analysis = {**ANALYSIS, "score": {**ANALYSIS["score"], "risks": []}}
+    result = client.interpret("analysis-1", analysis)
+
+    assert isinstance(result, AIInterpretation)
+    assert result.risks == []
+    assert len(fake.chat.completions.calls) == 2
 
 
 def test_repair_failure_returns_safe_error_and_is_not_cached() -> None:

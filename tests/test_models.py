@@ -742,15 +742,14 @@ def test_ai_interpretation_enforces_array_and_text_bounds() -> None:
     base = {
         "model_signal": "中性",
         "summary": "ok",
-        "evidence": [evidence(), evidence()],
-        "risks": [Risk(risk_type="other", description="risk")],
-        "watch_levels": [watch_level()],
+        "evidence": [evidence().model_dump(), evidence().model_dump()],
+        "risks": [Risk(risk_type="other", description="risk").model_dump()],
+        "watch_levels": [watch_level().model_dump()],
     }
 
     with pytest.raises(ValidationError):
-        AIRawInterpretation(**{**base, "evidence": [evidence()]})
-    with pytest.raises(ValidationError):
-        AIRawInterpretation(**{**base, "risks": []})
+        AIRawInterpretation(**{**base, "evidence": [evidence().model_dump()]})
+    assert AIRawInterpretation(**{**base, "risks": []}).risks == []
     with pytest.raises(ValidationError):
         AIRawInterpretation(**{**base, "watch_levels": []})
     with pytest.raises(ValidationError):
